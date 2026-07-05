@@ -38,13 +38,29 @@ pub const CLIENT_ID: &str = "Tsukimi";
 const APP_RESOURCE_PATH: &str = "/moe/tsuna/tsukimi";
 const GRESOURCE_FILE: &str = "tsukimi.gresource";
 
+// Windows: resolve paths relative to the exe (<prefix>/bin/tsukimi.exe -> <prefix>)
+// so the bundle stays portable.
+#[cfg(windows)]
+fn exe_prefix_dir() -> std::path::PathBuf {
+    std::env::current_exe()
+        .expect("Can not get exe path")
+        .ancestors()
+        .nth(2)
+        .expect("Can not get exe prefix dir")
+        .to_path_buf()
+}
+
 pub fn run() -> gtk::glib::ExitCode {
     Args::parse().init();
 
     // Initialize gettext
     setlocale(LocaleCategory::LcAll, String::new());
     bind_textdomain_codeset(GETTEXT_PACKAGE, "UTF-8").expect("Failed to set textdomain codeset");
+    #[cfg(not(windows))]
     bindtextdomain(GETTEXT_PACKAGE, LOCALEDIR).expect("Invalid argument passed to bindtextdomain");
+    #[cfg(windows)]
+    bindtextdomain(GETTEXT_PACKAGE, exe_prefix_dir().join("share").join("locale"))
+        .expect("Invalid argument passed to bindtextdomain");
 
     textdomain(GETTEXT_PACKAGE).expect("Invalid string passed to textdomain");
 
@@ -60,7 +76,13 @@ pub fn run() -> gtk::glib::ExitCode {
 }
 
 fn register_gio_resources() {
+    #[cfg(not(windows))]
     let path = std::path::Path::new(PKGDATADIR).join(GRESOURCE_FILE);
+    #[cfg(windows)]
+    let path = exe_prefix_dir()
+        .join("share")
+        .join("tsukimi")
+        .join(GRESOURCE_FILE);
     let resources = gtk::gio::Resource::load(path).expect("Failed to load resources.");
     gtk::gio::resources_register(&resources);
 }
