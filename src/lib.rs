@@ -44,7 +44,31 @@ const GRESOURCE_FILE: &str = "tsukimi.gresource";
 
 pub fn locale_dir() -> &'static str {
     static FLOCALEDIR: OnceCell<&'static str> = OnceCell::new();
-    FLOCALEDIR.get_or_init(|| LOCALEDIR)
+    FLOCALEDIR.get_or_init(|| {
+        #[cfg(not(windows))]
+        {
+            LOCALEDIR
+        }
+        #[cfg(windows)]
+        {
+            let locale_path = exe_prefix_dir().join("share").join("locale");
+            Box::leak(locale_path.into_boxed_path())
+                .to_str()
+                .expect("Can not get locale dir")
+        }
+    })
+}
+
+// Windows: resolve paths relative to the exe (<prefix>/bin/tsukimi.exe -> <prefix>)
+// so the bundle stays portable.
+#[cfg(windows)]
+fn exe_prefix_dir() -> std::path::PathBuf {
+    std::env::current_exe()
+        .expect("Can not get exe path")
+        .ancestors()
+        .nth(2)
+        .expect("Can not get exe prefix dir")
+        .to_path_buf()
 }
 
 pub fn run() -> gtk::glib::ExitCode {
@@ -69,7 +93,13 @@ pub fn run() -> gtk::glib::ExitCode {
 }
 
 fn register_gio_resources() {
+    #[cfg(not(windows))]
     let path = std::path::Path::new(PKGDATADIR).join(GRESOURCE_FILE);
+    #[cfg(windows)]
+    let path = exe_prefix_dir()
+        .join("share")
+        .join("tsukimi")
+        .join(GRESOURCE_FILE);
     let resources = gtk::gio::Resource::load(path).expect("Failed to load resources.");
     gtk::gio::resources_register(&resources);
 }

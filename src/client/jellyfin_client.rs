@@ -48,6 +48,9 @@ use tracing::warn;
 use url::Url;
 use uuid::Uuid;
 
+#[cfg(target_os = "windows")]
+use super::windows_compat::xattr;
+
 use super::{
     Account,
     ReqClient,
@@ -667,10 +670,17 @@ impl JellyfinClient {
         let mut etag: Option<String> = None;
 
         if path.exists() {
-            etag = xattr::get(&path, "user.etag")
-                .ok()
-                .flatten()
-                .and_then(|v| String::from_utf8(v).ok());
+            #[cfg(target_os = "linux")]
+            {
+                etag = xattr::get(&path, "user.etag")
+                    .ok()
+                    .flatten()
+                    .and_then(|v| String::from_utf8(v).ok());
+            }
+            #[cfg(target_os = "windows")]
+            {
+                etag = xattr::get_xattr(&path, "user.etag").ok();
+            }
         }
 
         match self.image_request(id, image_type, tag, etag).await {
@@ -741,7 +751,12 @@ impl JellyfinClient {
         let path = cache_path.join(path);
         tokio::fs::write(&path, bytes).await.unwrap();
         if let Some(etag) = etag {
+            #[cfg(target_os = "linux")]
             xattr::set(&path, "user.etag", etag.as_bytes()).unwrap_or_else(|e| {
+                tracing::warn!("Failed to set etag xattr: {}", e);
+            });
+            #[cfg(target_os = "windows")]
+            xattr::set_xattr(&path, "user.etag", etag).unwrap_or_else(|e| {
                 tracing::warn!("Failed to set etag xattr: {}", e);
             });
         }
