@@ -49,7 +49,6 @@ xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 futures-util = "0.3.31"
 itertools = "0.15.0"
 moka = { version = "0.12.15", features = ["future"] }
-glycin = { version = "3.1.0", default-features = false, features = ["gdk4", "tokio"] }
 
 [dev-dependencies]
 cargo-husky = { version = "1", default-features = false, features = ["user-hooks"] }
@@ -60,6 +59,19 @@ default = ["protocols", "render"]
 protocols = []                    # Enable custom protocol callbacks
 render = []                       # Enable custom rendering
 build_libmpv = []                 # build libmpv automatically, provided MPV_SOURCE is set
+
+# glycin's sandboxed loaders are unix-only; Windows uses a gdk-pixbuf
+# fallback in image_paintable.rs instead.
+[target.'cfg(not(windows))'.dependencies]
+glycin = { version = "3.1.0", default-features = false, features = ["gdk4", "tokio"] }
+
+[target.'cfg(windows)'.dependencies]
+gdk-pixbuf = "0.22"
+
+# mutsumi 0.2.0 does not compile on Windows (wl-proxy/dmabuf modules lack
+# cfg gates); vendored copy adds a render-API GL area path for non-Linux.
+[patch.crates-io]
+mutsumi = { path = "vendored/mutsumi" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 mpris-server = "0.10"

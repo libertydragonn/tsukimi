@@ -1,7 +1,6 @@
-use std::{
-    rc::Rc,
-    time::Duration,
-};
+#[cfg(not(windows))]
+use std::rc::Rc;
+use std::time::Duration;
 
 use anyhow::{
     Result,
@@ -17,10 +16,12 @@ use gtk::{
 };
 use tracing::warn;
 
+#[cfg(not(windows))]
 use crate::utils::spawn;
 
 const DEFAULT_ANIMATION_FRAME_DELAY: Duration = Duration::from_millis(100);
 
+#[cfg(not(windows))]
 mod imp {
     use std::cell::RefCell;
 
@@ -102,16 +103,101 @@ mod imp {
     }
 }
 
+// Windows: glycin's sandboxed loaders are unix-only, so decode with
+// gdk-pixbuf instead. PixbufAnimation covers both static images and GIFs.
+#[cfg(windows)]
+mod imp {
+    use std::cell::RefCell;
+
+    use super::*;
+
+    #[derive(Default)]
+    pub struct ImagePaintable {
+        /// Iterator driving the pixbuf animation.
+        pub iter: RefCell<Option<gdk_pixbuf::PixbufAnimationIter>>,
+        /// The currently displayed frame.
+        pub frame: RefCell<Option<gdk::Texture>>,
+        /// The source ID of the timeout to load the next frame, if any.
+        pub timeout_source_id: RefCell<Option<glib::SourceId>>,
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for ImagePaintable {
+        const NAME: &'static str = "ImagePaintable";
+        type Type = super::ImagePaintable;
+        type Interfaces = (gdk::Paintable,);
+    }
+
+    impl ObjectImpl for ImagePaintable {
+        fn dispose(&self) {
+            if let Some(source_id) = self.timeout_source_id.borrow_mut().take() {
+                source_id.remove();
+            }
+            self.iter.borrow_mut().take();
+            self.frame.borrow_mut().take();
+        }
+    }
+
+    impl PaintableImpl for ImagePaintable {
+        fn intrinsic_height(&self) -> i32 {
+            self.frame
+                .borrow()
+                .as_ref()
+                .map(|texture| texture.height())
+                .unwrap_or(-1)
+        }
+
+        fn intrinsic_width(&self) -> i32 {
+            self.frame
+                .borrow()
+                .as_ref()
+                .map(|texture| texture.width())
+                .unwrap_or(-1)
+        }
+
+        fn snapshot(&self, snapshot: &gdk::Snapshot, width: f64, height: f64) {
+            if let Some(texture) = &*self.frame.borrow() {
+                texture.snapshot(snapshot, width, height);
+            } else {
+                let snapshot = snapshot.downcast_ref::<gtk::Snapshot>().unwrap();
+                snapshot.append_color(
+                    &gdk::RGBA::BLACK,
+                    &graphene::Rect::new(0f32, 0f32, width as f32, height as f32),
+                );
+            }
+        }
+
+        fn flags(&self) -> gdk::PaintableFlags {
+            gdk::PaintableFlags::STATIC_SIZE
+        }
+
+        fn current_image(&self) -> gdk::Paintable {
+            self.frame
+                .borrow()
+                .to_owned()
+                .map(|frame| frame.upcast())
+                .or_else(|| {
+                    let snapshot = gtk::Snapshot::new();
+                    self.obj().snapshot(&snapshot, 1.0, 1.0);
+
+                    snapshot.to_paintable(None)
+                })
+                .expect("there should be a fallback paintable")
+        }
+    }
+}
+
 glib::wrapper! {
-    /// A paintable that displays an animated image decoded by glycin.
+    /// A paintable that displays an animated image.
     ///
     /// `gtk::Picture` displays paintables but does not drive animation itself;
-    /// this object owns the animation timer, requests the next glycin frame, and
+    /// this object owns the animation timer, requests the next frame, and
     /// invalidates its contents when the current frame changes.
     pub struct ImagePaintable(ObjectSubclass<imp::ImagePaintable>)
         @implements gdk::Paintable;
 }
 
+#[cfg(not(windows))]
 pub async fn paintable_from_file(
     file: gio::File, cancellable: Option<gio::Cancellable>,
 ) -> Result<gdk::Paintable> {
@@ -134,6 +220,33 @@ pub async fn paintable_from_file(
     }
 }
 
+#[cfg(windows)]
+pub async fn paintable_from_file(
+    file: gio::File, cancellable: Option<gio::Cancellable>,
+) -> Result<gdk::Paintable> {
+    if cancellable.as_ref().is_some_and(|c| c.is_cancelled()) {
+        bail!("image load cancelled");
+    }
+
+    let stream = file.read_future(glib::Priority::DEFAULT).await?;
+    let animation = gdk_pixbuf::PixbufAnimation::from_stream_future(&stream).await?;
+
+    if cancellable.as_ref().is_some_and(|c| c.is_cancelled()) {
+        bail!("image load cancelled");
+    }
+
+    if animation.is_static_image() {
+        let Some(pixbuf) = animation.static_image() else {
+            bail!("failed to get static image from pixbuf animation");
+        };
+        #[allow(deprecated)]
+        Ok(gdk::Texture::for_pixbuf(&pixbuf).upcast())
+    } else {
+        Ok(ImagePaintable::new(animation).upcast())
+    }
+}
+
+#[cfg(not(windows))]
 impl ImagePaintable {
     fn new(image: glycin::Image, frame: glycin::Frame) -> Self {
         let obj = glib::Object::new::<Self>();
@@ -187,5 +300,74 @@ impl ImagePaintable {
                 }
             }
         ));
+    }
+}
+
+#[cfg(windows)]
+impl ImagePaintable {
+    fn new(animation: gdk_pixbuf::PixbufAnimation) -> Self {
+        let obj = glib::Object::new::<Self>();
+        obj.imp()
+            .iter
+            .replace(Some(animation.iter(Some(std::time::SystemTime::now()))));
+        obj.show_current_frame();
+        obj
+    }
+
+    fn show_current_frame(&self) {
+        let imp = self.imp();
+        let Some(iter) = imp.iter.borrow().as_ref().cloned() else {
+            return;
+        };
+
+        let pixbuf = iter.pixbuf();
+        #[allow(deprecated)]
+        let texture = gdk::Texture::for_pixbuf(&pixbuf);
+        imp.frame.replace(Some(texture));
+        self.invalidate_contents();
+
+        // delay_time() is in milliseconds; a negative value means the frame
+        // never changes.
+        let delay_ms = iter.delay_time();
+        if delay_ms < 0 {
+            return;
+        }
+        let delay = if delay_ms == 0 {
+            DEFAULT_ANIMATION_FRAME_DELAY
+        } else {
+            Duration::from_millis(delay_ms as u64)
+        };
+        self.schedule_next_frame(delay);
+    }
+
+    fn schedule_next_frame(&self, delay: Duration) {
+        let imp = self.imp();
+        if let Some(source_id) = imp.timeout_source_id.borrow_mut().take() {
+            source_id.remove();
+        }
+
+        let source_id = glib::timeout_add_local_once(
+            delay,
+            glib::clone!(
+                #[weak(rename_to = obj)]
+                self,
+                move || {
+                    obj.imp().timeout_source_id.borrow_mut().take();
+                    obj.load_next_frame();
+                }
+            ),
+        );
+        imp.timeout_source_id.replace(Some(source_id));
+    }
+
+    fn load_next_frame(&self) {
+        let Some(iter) = self.imp().iter.borrow().as_ref().cloned() else {
+            return;
+        };
+
+        if !iter.advance(std::time::SystemTime::now()) {
+            warn!("Pixbuf animation frame did not advance");
+        }
+        self.show_current_frame();
     }
 }

@@ -131,7 +131,8 @@ impl Args {
 
         if std::env::var("XDG_CACHE_HOME").is_err() {
             info!("Windows: Falling back to default XDG_CACHE_HOME: %LOCALAPPDATA%");
-            let config_local_dir = dirs::config_local_dir().expect("Failed to get %LOCALAPPDATA%");
+            let config_local_dir =
+                std::env::var_os("LOCALAPPDATA").expect("Failed to get %LOCALAPPDATA%");
             unsafe { std::env::set_var("XDG_CACHE_HOME", config_local_dir) };
         }
     }
