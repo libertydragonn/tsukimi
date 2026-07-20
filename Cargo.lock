@@ -2226,8 +2226,6 @@ checksum = "956787520e75e9bd233246045d19f42fb73242759cc57fba9611d940ae96d4b0"
 [[package]]
 name = "mutsumi"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f8f59acf37ebc973ff40b539fda6cc8c725fc9f552995c1de622625e4458077"
 dependencies = [
  "ash",
  "atomic-wait",
@@ -3608,6 +3606,7 @@ dependencies = [
  "flume",
  "fnv",
  "futures-util",
+ "gdk-pixbuf",
  "gdk4-wayland",
  "gdk4-x11",
  "gettext-rs",

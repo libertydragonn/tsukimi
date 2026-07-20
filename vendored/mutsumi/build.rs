@@ -35,10 +35,32 @@ fn on_build() {
     let icon_inputs = discover_icon_files(&project_root.join("resources/icons"));
 
     check_duplicate_ui_outputs(&project_root, &blueprint_inputs);
-    cleanup_generated_ui_files(&project_root, &blueprint_inputs);
 
-    for input in &blueprint_inputs {
-        compile_blp(&project_root, input);
+    // MSYS2 ships blueprint-compiler as an extensionless Python script that
+    // CreateProcess cannot spawn; the vendored copy ships pre-compiled .ui
+    // files, so fall back to those when the compiler is unavailable.
+    let have_blueprint_compiler = Command::new("blueprint-compiler")
+        .arg("--version")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if have_blueprint_compiler {
+        cleanup_generated_ui_files(&project_root, &blueprint_inputs);
+
+        for input in &blueprint_inputs {
+            compile_blp(&project_root, input);
+        }
+    } else {
+        for input in &blueprint_inputs {
+            let output = output_ui_path(&project_root, input);
+            if !output.exists() {
+                panic!(
+                    "blueprint-compiler not found and pre-compiled UI missing: {}",
+                    output.display()
+                );
+            }
+        }
     }
 
     generate_gresource_xml(&project_root, &blueprint_inputs, &icon_inputs);

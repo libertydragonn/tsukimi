@@ -326,16 +326,14 @@ impl ImagePaintable {
         imp.frame.replace(Some(texture));
         self.invalidate_contents();
 
-        // delay_time() is in milliseconds; a negative value means the frame
-        // never changes.
-        let delay_ms = iter.delay_time();
-        if delay_ms < 0 {
+        // None means the current frame never changes.
+        let Some(delay) = iter.delay_time() else {
             return;
-        }
-        let delay = if delay_ms == 0 {
+        };
+        let delay = if delay.is_zero() {
             DEFAULT_ANIMATION_FRAME_DELAY
         } else {
-            Duration::from_millis(delay_ms as u64)
+            delay
         };
         self.schedule_next_frame(delay);
     }
