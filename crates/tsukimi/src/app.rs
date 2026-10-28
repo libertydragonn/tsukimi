@@ -166,6 +166,8 @@ mod imp {
 
             init.set_option("hwdec", match_hwdec_interop(SETTINGS.mpv_hwdec()))?;
 
+            // Wayland-only contexts; elsewhere mpv must stay on vo=libmpv.
+            #[cfg(target_os = "linux")]
             match SETTINGS.mpv_renderer() {
                 1 => {
                     init.set_option("gpu-context", "waylandvk")?;
