@@ -4,14 +4,26 @@ mod actor;
 mod area;
 mod contexted;
 mod logging;
+#[cfg(target_os = "linux")]
 mod paintable;
+#[cfg(target_os = "linux")]
 mod proxy;
 
 pub use actor::*;
 pub use area::*;
 pub use contexted::*;
+#[cfg(target_os = "linux")]
 pub use paintable::*;
+#[cfg(target_os = "linux")]
 pub use proxy::*;
+
+// The wl-proxy/dmabuf embedder only exists on Linux. Elsewhere the render-API
+// GL area is the video sink and arming the proxy is a no-op.
+#[cfg(not(target_os = "linux"))]
+pub type MutsumiVideoSink = MPVGLArea;
+
+#[cfg(not(target_os = "linux"))]
+pub fn arm_mpv_proxy() {}
 
 use flume::{
     Receiver,

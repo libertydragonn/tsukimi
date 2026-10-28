@@ -19,6 +19,7 @@ use super::backend::{
 };
 
 mod imp {
+    #[cfg(target_os = "linux")]
     use std::cell::Cell;
 
     use adw::{
@@ -30,8 +31,9 @@ mod imp {
         CssProvider,
     };
 
+    use crate::MutsumiVideoSink;
+    #[cfg(target_os = "linux")]
     use crate::{
-        MutsumiVideoSink,
         VIEWPORT_CHANNEL,
         Viewport,
     };
@@ -44,6 +46,7 @@ mod imp {
     #[properties(wrapper_type = super::MutsumiVideoPlayer)]
     pub struct MutsumiVideoPlayer {
         pub backend: MutsumiVideoSink,
+        #[cfg(target_os = "linux")]
         last_viewport: Cell<Viewport>,
         #[template_child]
         picture: TemplateChild<gtk::Picture>,
@@ -71,7 +74,12 @@ mod imp {
             self.parent_constructed();
 
             let obj = self.obj();
+            #[cfg(target_os = "linux")]
             self.picture.set_paintable(Some(&self.backend));
+            // Render-API path: the GL area replaces the offloaded picture and
+            // libmpv draws into it directly.
+            #[cfg(not(target_os = "linux"))]
+            obj.set_child(Some(&self.backend));
 
             obj.add_css_class("mutsumi-video-player");
 
@@ -92,6 +100,11 @@ mod imp {
     }
 
     impl MutsumiVideoPlayer {
+        // The GL area sizes its own framebuffer; only the wl-proxy needs this.
+        #[cfg(not(target_os = "linux"))]
+        pub fn update_viewport(&self, _width: i32, _height: i32) {}
+
+        #[cfg(target_os = "linux")]
         pub fn update_viewport(&self, width: i32, height: i32) {
             if width <= 0 || height <= 0 {
                 return;

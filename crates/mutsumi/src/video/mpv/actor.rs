@@ -178,7 +178,11 @@ impl MpvActor {
             mpv.set_option("keep-open", "yes")?;
             mpv.set_option("auto-window-resize", "no")?;
 
+            // Outside Linux the GL area drives mpv through the render API.
+            #[cfg(target_os = "linux")]
             mpv.set_option("vo", "gpu-next")?;
+            #[cfg(not(target_os = "linux"))]
+            mpv.set_option("vo", "libmpv")?;
 
             if let Some(initializer) = MPV_INITIALIZER.get() {
                 initializer(mpv)?;

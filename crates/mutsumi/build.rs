@@ -87,7 +87,7 @@ fn compile_blp(input_dir: &Path, output_dir: &Path, inputs: &[PathBuf]) -> Vec<P
         return Vec::new();
     }
 
-    let status = Command::new("blueprint-compiler")
+    let status = blueprint_compiler()
         .arg("batch-compile")
         .arg(output_dir)
         .arg(input_dir)
@@ -107,6 +107,29 @@ fn compile_blp(input_dir: &Path, output_dir: &Path, inputs: &[PathBuf]) -> Vec<P
         .into_iter()
         .filter(|path| path.extension().and_then(OsStr::to_str) == Some("ui"))
         .collect()
+}
+
+// MSYS2 ships blueprint-compiler as an extensionless Python script, which
+// CreateProcess cannot spawn; run it through python3 found next to it in PATH.
+fn blueprint_compiler() -> Command {
+    let direct = Command::new("blueprint-compiler").arg("--version").output();
+    if direct.is_ok() || !cfg!(windows) {
+        return Command::new("blueprint-compiler");
+    }
+
+    let path = env::var_os("PATH").unwrap_or_default();
+    let script = env::split_paths(&path)
+        .map(|dir| dir.join("blueprint-compiler"))
+        .find(|candidate| candidate.is_file())
+        .expect("blueprint-compiler not found in PATH");
+    let python = script.with_file_name("python3.exe");
+    let mut command = Command::new(if python.is_file() {
+        python
+    } else {
+        PathBuf::from("python3")
+    });
+    command.arg(script);
+    command
 }
 
 fn cleanup_generated_ui_files(ui_dir: &Path) {
