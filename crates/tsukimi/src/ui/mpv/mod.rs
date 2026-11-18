@@ -7,7 +7,7 @@ pub mod danmaku_scale_row;
 pub mod danmaku_search_dialog;
 mod danmaku_sync;
 pub mod menu_actions;
-
+#[cfg(target_os = "linux")]
 pub mod mpris;
 pub mod options_matcher;
 pub mod page;
