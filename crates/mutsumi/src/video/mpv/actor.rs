@@ -6,10 +6,9 @@ use std::{
     },
 };
 
-use crate::{
-    MutsumiMpvError,
-    gdk_hdr_enabled,
-};
+use crate::MutsumiMpvError;
+#[cfg(target_os = "linux")]
+use crate::gdk_hdr_enabled;
 
 use super::{
     logging,
@@ -180,8 +179,15 @@ impl MpvActor {
             mpv.set_option("hwdec", "auto-safe")?;
             mpv.set_option("keep-open", "yes")?;
             mpv.set_option("auto-window-resize", "no")?;
+            // Outside Linux the GL area drives mpv through the render API.
+            #[cfg(target_os = "linux")]
             mpv.set_option("vo", "gpu-next")?;
+            #[cfg(not(target_os = "linux"))]
+            mpv.set_option("vo", "libmpv")?;
 
+            // PQ output is only tagged as HDR by the dmabuf paintable; the GL
+            // area framebuffer is SDR, so keep mpv's default target there.
+            #[cfg(target_os = "linux")]
             if gdk_hdr_enabled() {
                 mpv.set_option("target-colorspace-hint", "no")?;
                 mpv.set_option("target-prim", "bt.2020")?;

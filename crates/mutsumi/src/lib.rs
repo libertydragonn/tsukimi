@@ -17,6 +17,7 @@ pub fn enable_gdk_hdr() {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn gdk_hdr_enabled() -> bool {
     std::env::var("GDK_DEBUG")
         .map(|v| v.contains("hdr"))
